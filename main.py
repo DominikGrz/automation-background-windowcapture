@@ -1,7 +1,4 @@
-import re, threading, win32gui, os, time
-import numpy as np
-import tkinter as tk
-import tkinter.ttk as ttk
+import threading, os, time
 from hwndsframe import GetHwnds
 from capturewindow import Capture
 from inputmodule import Inputs
