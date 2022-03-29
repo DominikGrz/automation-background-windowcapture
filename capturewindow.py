@@ -1,4 +1,3 @@
-from cv2 import cvtColor
 import win32con, win32gui, win32ui, time, threading, cv2
 import numpy as np
 import re
