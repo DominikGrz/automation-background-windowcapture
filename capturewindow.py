@@ -2,13 +2,6 @@ import win32con, win32gui, win32ui, time, threading, cv2
 import numpy as np
 import re
 
-#def threaded(fn):
-#    def wrapper(*args, **kwargs):
-#        thread = threading.Thread(target=fn, args=args, kwargs=kwargs)
-#        thread.start()
-#        return thread
-#    return wrapper
-
 class Capture():
     
     frame = 0
