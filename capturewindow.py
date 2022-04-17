@@ -2,27 +2,43 @@ import win32con, win32gui, win32ui, time, threading, cv2
 import numpy as np
 import re
 
+#def threaded(fn):
+#    def wrapper(*args, **kwargs):
+#        thread = threading.Thread(target=fn, args=args, kwargs=kwargs)
+#        thread.start()
+#        return thread
+#    return wrapper
+
 class Capture():
     
     frame = 0
-    rate = 0
+    rate = 30
+    window = 0
+    width = 0
+    height = 0
     
     def __init__(self, windowhandle, rate=30, video=True):
         self.windowhandle = windowhandle
         self.rate = rate
-        time.sleep(1)
-        self.update = threading.Thread(target=self.update_frame)
-        self.update.setDaemon(True)
+        self.pos = threading.Thread(target=self.update_pos, daemon=True)
+        self.pos.start()
+        time.sleep(0.5)
+        self.width = self.window[2]-self.window[0]
+        self.height = self.window[3]-self.window[1]
+        time.sleep(0.5)
+        self.update = threading.Thread(target=self.update_frame, daemon=True)
         self.update.start()
-        time.sleep(1)
+        time.sleep(0.5)
         if video:
-            self.output = threading.Thread(target=self.video_output)
-            self.output.setDaemon(True)
+            self.output = threading.Thread(target=self.video_output, daemon=True)
             self.output.start()
-        time.sleep(1)
+        time.sleep(0.5)
         print("Initialization complete.")
-            
-        
+    
+    def update_pos(self):
+        while True:
+            self.window = win32gui.GetWindowRect(self.windowhandle)
+            time.sleep(0.5)
     
     def update_frame(self):
         print("Capture running.")
@@ -36,7 +52,7 @@ class Capture():
         while True:
             cv2.imshow('Press Q to close window', self.frame)
             time.sleep(1./self.rate)
-            if cv2.waitKey(10) == ord('q'):
+            if cv2.waitKey(1) & 0xFF == ord('q'):
                 time.sleep(0.5)
                 cv2.destroyAllWindows()
                 print("Video output closed.")
@@ -48,13 +64,13 @@ class Capture():
         dcObj  = win32ui.CreateDCFromHandle(wDC)
         cDC = dcObj.CreateCompatibleDC()
         bmp = win32ui.CreateBitmap()
-        bmp.CreateCompatibleBitmap(dcObj, 558, 1021)
+        bmp.CreateCompatibleBitmap(dcObj, self.width, self.height)
         cDC.SelectObject(bmp)
-        cDC.BitBlt((0, 0), (558, 1021), dcObj, (0, 0), win32con.SRCCOPY)
+        cDC.BitBlt((0, 0), (self.width, self.height), dcObj, (0, 0), win32con.SRCCOPY)
 
         signedIntsArray = bmp.GetBitmapBits(True)
         img = np.frombuffer(signedIntsArray, dtype='uint8') # convert bits into np array
-        img.shape = (1021, 558, 4)
+        img.shape = (self.height, self.width, 4)
         
         # free resources
         dcObj.DeleteDC()
@@ -94,7 +110,7 @@ class Capture():
         img = cv2.imread(needle, 1)
         result = cv2.matchTemplate(self.frame, img, cv2.TM_CCOEFF_NORMED)
         locations = np.where(result >= threshold) # extract all locations where threshold is met
-        if values == True:
+        if values is True:
             values = result[locations] # save the values at those locations
             locations = list(zip(*locations[::-1]))
             return locations, values

@@ -201,10 +201,10 @@ class TailedGUI():
          
 
     def switch_mode(self):
-        if self.mode.get() == True:
+        if self.mode.get() is True:
             self.mode.set(False)
             self.switch_boxes('disabled', 'normal', False)
-        elif self.mode.get() == False:
+        elif self.mode.get() is False:
             self.mode.set(True)
             self.switch_boxes('normal', 'disabled', True)
          

@@ -2,9 +2,10 @@ import win32api, win32con, time
 
 class Inputs:
     input_lookup = {
-            'l':0x4C, #scroll
+            'l':0x4C, #gear shop
+            'j':0x4A, #gems shop
             'n':0x4E, #confirm
-            'p':0x50, #return
+            'p':0x50, #
             'k':0x4B, #returnold
             'm':0x4D, #train
             'o':0x4F, #home
@@ -20,9 +21,8 @@ class Inputs:
             win32api.SendMessage(self.keyboard, win32con.WM_KEYDOWN, self.input_lookup.get(key), 0)
             time.sleep(0.05)
             win32api.SendMessage(self.keyboard, win32con.WM_KEYUP, self.input_lookup.get(key), 65539)
-            
         else:
-            raise Exception("Key: {} not found in dict".format(key))
+            raise Exception(f"Key: {key} not found in dict")
 
             
     def tap(self, x, y):

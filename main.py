@@ -1,4 +1,7 @@
-import threading, os, time
+import re, threading, win32gui, os, time, keyboard
+import numpy as np
+import tkinter as tk
+import tkinter.ttk as ttk
 from hwndsframe import GetHwnds
 from capturewindow import Capture
 from inputmodule import Inputs
@@ -17,297 +20,205 @@ class Game(threading.Thread):
 
         
     def run(self):
-        print("Wow!")
-        while self.gui.title == None:
+        while self.gui.title is None:
             time.sleep(1)
-        self.hwnd = GetHwnds(self.gui.title)
+        self.hwnd = GetHwnds(self.gui.title, 'MainWindowWindow', False)
         self.frames = Capture(self.hwnd.game, 30, False)
         self.inputs = Inputs(self.hwnd.input, self.hwnd.game)
         self.dungeon = self.timer(35)
-        self.train = self.timer(3)
-        self.event = self.timer(60)
-        self.check = threading.Thread(target=self.check_fail)
-        self.check.setDaemon(True)
+        self.train = self.timer(5)
+        self.checktrigger = True
+        self.check = threading.Thread(target=self.check_fail, daemon=True)
         self.check.start()
+        self.values = threading.Thread(target=self.find_values, daemon=True)
+        self.values.start()
         while True:
             time.sleep(1)
-            if self.gui.mode.get() == True:
-                self.gui.print_finder(" ")
+            if self.gui.mode.get() is True:
+                self.gui.print_finder(' ')
                 self.selection()
-            elif self.gui.mode.get() == False:
+            elif self.gui.mode.get() is False:
                 self.background_ad_skip()
-                
-                
-    def selection(self):
-        self.gui.print_line("doing selection mode")
-        current_time = time.time()
-        time.sleep(1)
-        print(self.where_am_i())
-        
-        if self.where_am_i() in ["playstore", "home"]:
-            time.sleep(4)
-            if self.where_am_i() in ["playstore", "home"]:
-                self.restart_game()          
-        elif self.where_am_i() == "ad":
-            time.sleep(10)
-            if self.where_am_i() == "ad":
-                self.skip_ad()
-        #while self.where_am_i() in ["shop", "card", "fairies", "character", "dungeon"]:
-        #    time.sleep(10)
-        
-        counter = 0
-        self.return_home()
-        while self.frames.extract_pixel(45, 139) != [61, 127, 197]:
-            self.do_buffs()
-            counter =+ 1
-            if counter>10:
-                self.restart_game()
-        
-        #counter = 0
-        #game.return_home()
-        #while game.frames.extract_pixel(85, 949) != [33, 36, 57]:
-        #    game.do_shop()
-        #    counter =+ 1
-        #    if counter>10:
-        #        game.restart_game()
-        
-        self.inputs.tap(508, 214) #rush
-        if self.where_am_i() == "main":
-            time.sleep(2)
-            print(str(int(((35*60)-(current_time-self.dungeon))/60))+"min left on dungeon")
-            if (35*60)<(current_time-self.dungeon): # 35min
-                c = self.do_dungeons()
-                if c != 'Failed':
-                    self.dungeon = time.time()
-            time.sleep(2)
-            print(str(int(((3*60)-(current_time-self.train))/60))+"min left on train")
-            if (3*60)<(current_time-self.train): # 3min
-                d = self.do_train()
-                if d != 'Failed':
-                    self.train = time.time()
-            time.sleep(2)
-            print(str(int(((60*60)-(current_time-self.event))/60))+"min left on event check")
-            if (60*60)<(current_time-self.event): # 60min
-                d = self.do_event_check()
-                if d != 'Failed':
-                    self.event = time.time()
-                
-    def selection2(self):
-        time.sleep(5)
+            elif not self.gui.window.winfo_exists():
+                break
+    
+    # helper
+    def timer_print(self, minutes, what):
+        return str(int(((minutes*60)-(time.time()-what))/60))
+    def timer_compare(self, minutes, what):    
+        return (minutes*60)<(time.time()-what)
+    def timer(self, minutes):
+        return (time.time())-(minutes*60)
 
- 
-        while True:
-            current_time = time.time()
+    #mostly main
+    def return_to(self, where):
+        timer = time.time()
+        while self.where_am_i() != where:
+            currtime = time.time()
+            self.inputs.key('k')
             time.sleep(1)
-            print(self.where_am_i())
+            if 20<(currtime-timer):
+                self.restart_game()
+    
+    # main automation
+    def selection(self):
+        if self.where_am_i() != 'main':
+            self.return_to('main')
+        if self.frames.extract_pixel(43, 134) == [152, 152, 160] and self.gui.buff.get(): #check buff icon
+            self.do_buffs()
+            if self.where_am_i() != 'main':
+                self.return_to('main')
+        if self.frames.extract_pixel(79, 948) == [231, 242, 231] and self.gui.shop.get(): #check checkmark icon
+            self.do_shop()
+            if self.where_am_i() != 'main':
+                self.return_to('main')
+        if self.frames.extract_pixel(512, 209) == [84, 164, 229] and self.gui.rush.get(): #check rush icon
+            self.inputs.tap(508, 214)
+            time.sleep(7)
+        if not self.checktrigger and self.gui.prestige.get(): # prestige
+            self.do_prestige()
+            self.checktrigger = True
+            time.sleep(1)
             
-            if self.where_am_i() in ["playstore", "home"]:
+        if self.timer_compare(35, self.dungeon) and self.gui.dungeon.get(): # DUNGEON
+            if self.do_dungeons():
+                self.dungeon = time.time()
+        elif self.gui.dungeon.get():
+            self.gui.print_line(f"Dungeon cd: {self.timer_print(35, self.dungeon)}min")
+            time.sleep(3)
+            
+        if self.timer_compare(5, self.train) and self.gui.training.get(): # TRAINING
+            if self.do_train():
+                self.train = time.time()
+        elif self.gui.training.get():
+            self.gui.print_line(f"Train cd: {self.timer_print(5, self.train)}min")
+            time.sleep(3)
+
+    # helper to find values
+    def find_values(self):
+        while True:
+            if keyboard.is_pressed('w'):
+                cur_x, cur_y = win32gui.GetCursorPos()
+                win_x, win_y, _, _ = self.frames.window
+
+                offset_x = (1920+cur_x)-(1920+win_x)
+                offset_y = cur_y-win_y
+                if (0 < offset_x < self.frames.width) and (0 < offset_y < self.frames.height):
+                    rgb = self.frames.extract_pixel(offset_x, offset_y)
+                    print(f"({offset_x}, {offset_y}) == {rgb}")
+                    time.sleep(1)
+            else:
+                time.sleep(0.2)
+    
+    #check if a stage has been failed
+    def check_fail(self):
+        while True:
+            if self.checktrigger:
+                try:
+                    if self.gui.prestige.get() is True:
+                        result = self.frames.find_needle('prestige/', 'timesup.PNG', 0.95)
+                        if result != False:
+                            self.checktrigger = False
+                        time.sleep(1)
+                    else:
+                        time.sleep(1)
+                except:
+                    break
+            else:
+                    time.sleep(1)
+
+    # helper if multiple values to check
+    def e_p(self, list, color):
+        for i in list:
+            if self.frames.extract_pixel(i[0], i[1]) != color:
+                return False
+        return True
+
+    # return where the main screen is located at
+    def where_am_i(self, counter=0):
+        if self.e_p([(117,211),(405,220),(117,546),(427,542),(137,769),(431,752),(276, 503),(8, 38)], [0, 0, 0]): # black screen  
+            if self.frames.extract_pixel(118, 351) != [0, 0, 0]: # stage transition
                 time.sleep(4)
-                if self.where_am_i() in ["playstore", "home"]:
-                    self.restart_game()          
-            elif self.where_am_i() == "ad":
-                time.sleep(10)
-                if self.where_am_i() == "ad":
-                    self.skip_ad()
-            #while self.where_am_i() in ["shop", "card", "fairies", "character", "dungeon"]:
-            #    time.sleep(10)
-            
-            counter = 0
-            self.return_home()
-            while self.frames.extract_pixel(45, 139) != [61, 127, 197]:
-                self.do_buffs()
-                counter =+ 1
-                if counter>10:
-                    self.restart_game()
-            
-            #counter = 0
-            #game.return_home()
-            #while game.frames.extract_pixel(85, 949) != [33, 36, 57]:
-            #    game.do_shop()
-            #    counter =+ 1
-            #    if counter>10:
-            #        game.restart_game()
-            
-            self.inputs.tap(508, 214) #rush
-            if self.where_am_i() == "main":
-                time.sleep(2)
-                print(str(int(((180*60)-(current_time-prestige))/60))+"min left on return")
-                if (180*60)<(current_time-prestige): # 60min
-                    b = self.do_prestige()
-                    if b != 'Failed':
-                        prestige = time.time()
-                time.sleep(2)
-                print(str(int(((35*60)-(current_time-dungeon))/60))+"min left on dungeon")
-                if (35*60)<(current_time-dungeon): # 35min
-                    c = self.do_dungeons()
-                    if c != 'Failed':
-                        dungeon = time.time()
-                time.sleep(2)
-                print(str(int(((3*60)-(current_time-train))/60))+"min left on train")
-                if (3*60)<(current_time-train): # 3min
-                    d = self.do_train()
-                    if d != 'Failed':
-                        train = time.time()
-                time.sleep(2)
-                print(str(int(((60*60)-(current_time-event))/60))+"min left on event check")
-                if (60*60)<(current_time-event): # 60min
-                    d = self.do_event_check()
-                    if d != 'Failed':
-                        event = time.time()
-
-
-    def where_am_i(self): # HERE ITS HEIGHT THEN WIDTH from top left
-        x_button = [176, 176, 206]
-        black = [0, 0, 0]
-        
-        if (self.frames.extract_pixel(119, 93) == self.frames.extract_pixel(67, 506) == self.frames.extract_pixel(488, 517) == self.frames.extract_pixel(483, 168) == self.frames.extract_pixel(106, 889) == self.frames.extract_pixel(484, 885) == black):
-            return "brokenad"
-        elif self.frames.extract_pixel(282, 337) == black and self.frames.extract_pixel(281, 319) == [173, 211, 255]:
-            return "buff"
-        elif (self.frames.extract_pixel(371,230) == [140, 150, 156]) or (self.frames.extract_pixel(542, 592) == [16, 32, 57]) or((self.frames.extract_pixel(277, 295) == black)and(self.frames.extract_pixel(163, 246) == [140, 150, 156])):
-            return "reward"
-        elif self.frames.extract_pixel(35,858) == [123, 199, 231]:
-            if self.frames.extract_pixel(366,91) == black:
-                return "doingdungeon"
-            return "main"
-        elif self.frames.extract_pixel(55, 943) == x_button:
-            return "shop"
-        elif self.frames.extract_pixel(168, 943) == x_button:
-            return "card"
-        elif self.frames.extract_pixel(277, 943) == x_button:
-            return "character"
-        elif self.frames.extract_pixel(390, 943) == x_button:
-            return "fairies"
-        elif self.frames.extract_pixel(500, 943) == x_button or self.frames.extract_pixel(500, 943) == [41, 65, 107]:
-            return "dungeon"
+                return self.where_am_i()
+            elif counter == 3:
+                return 'brokenad'
+            else:
+                time.sleep(3)
+                counter += 1
+                return self.where_am_i(counter)
+        elif self.frames.extract_pixel(265, 272) == [66, 117, 99]:
+            return 'buff'
+        elif self.frames.extract_pixel(385, 248) == [140, 158, 160]: # dungeon rewards
+            return 'reward'
+        elif self.frames.extract_pixel(288, 387) == [6, 6, 6]: # offline rewards
+            return 'reward'
+        elif self.frames.extract_pixel(394, 256) == [85, 83, 93]: # shop rewards
+            return 'reward'
+        elif self.frames.extract_pixel(496, 966) == [82, 81, 82]: # currently inside a dungeon
+            return 'doingdungeon'
+        elif self.frames.extract_pixel(42, 980) == [33, 42, 74]: # currently inside a tower
+            return 'doingdungeon'
+        elif self.frames.extract_pixel(498, 128) == [22, 45, 63]:
+            return 'main'
+        elif self.frames.extract_pixel(54, 941) == [196, 194, 221]:
+            return 'shop'
+        elif self.frames.extract_pixel(165, 941) == [196, 196, 219]:
+            return 'card'
+        elif self.frames.extract_pixel(276, 941) == [196, 197, 217]:
+            return 'character'
+        elif self.frames.extract_pixel(387, 941) == [196, 198, 216]:
+            return 'fairies'
+        elif self.frames.extract_pixel(498, 941) == [196, 198, 216]:
+            return 'dungeon'
         else:
-            return "ad"
-        
+            return 'ad'
+    
+    # restarts the game
     def restart_game(self):
-        print("Restarting...")
+        self.gui.print_line('Restarting...')
         self.inputs.tap(107, 67)
         time.sleep(1)
         
-        print("Loading...")
+        self.gui.print_line('Loading...')
         timer = time.time()
         currtime = time.time()
-        while (self.where_am_i() != "main") and (60>(currtime-timer)):
+        while (self.where_am_i() != 'main') and (60>(currtime-timer)):
             currtime = time.time()
             time.sleep(1)
             if self.frames.extract_pixel(320,626) == [115, 190, 231]:
                 self.restart_game()
                 return
-            if (30<(currtime-timer)) or (self.where_am_i() in ["reward", "buff"]):
-                print("Attempting to close popups")
+            if (30<(currtime-timer)) or (self.where_am_i() in ['reward', 'buff']):
+                self.gui.print_line('Attempting to close popups')
                 self.inputs.tap(992, 279)
                 time.sleep(2)
-                if (30<(currtime-timer)) or (self.where_am_i() in ["reward", "buff"]):
+                if (30<(currtime-timer)) or (self.where_am_i() in ['reward', 'buff']):
                     self.inputs.key('k')
         if self.where_am_i() != 'main':
             self.restart_game()
             return
         else:
-            print("Restart finished")
+            self.gui.print_line('Restart finished')
             
-    # returns to the main menu screen
-    def return_home(self):
-        timer = time.time()
-        while self.where_am_i() != "main":
-            currtime = time.time()
-            self.inputs.key('k')
-            time.sleep(0.5)
-            if 20<(currtime-timer):
-                self.restart_game()
-            
-    def skip_ad(self):  
-        best_loc = (0, 0) # tuple coordinates
-        best_val = 0
-        best_pic = None
-        threshold = 0.75
-        needles = tuple(os.listdir('needles/'))
-        timer = time.time()
-        print("Waiting for ad to progress...")
-        time.sleep(10)
-        while not best_val>threshold:
-            print('Scanning...')
-            #self.inputs.tap(260, 20)
-            currtime = time.time()
-            if 120<(currtime-timer): # if 2 minutes pass without success restart
-                self.restart_game()
-                return 'Failed'
-            if self.where_am_i() == "main":
-                print('Returned to main')
-                return 'Failed'
-            elif self.where_am_i() != "ad":
-                return 'Failed'
-            for i in needles:
-                time.sleep(0.1)
-                locations, values = self.frames.find_all_needle('needles/', i, threshold, values=True)
-                if len(locations)>0: # add another check for locations in middle of game as the close button is usually towards the corners : DONE
-                    for k in range(len(locations)):
-                        if (values[k] > threshold) and (values[k] > best_val) and (locations[k][1]>32): # last check for the memu exit button
-                            if not (70 <= locations[k][0] <= 485) and not (140 <= locations[k][1] <= 930):
-                                best_val = values[k]
-                                best_loc = locations[k]
-                                best_pic = i
-                                print("New best match: " +str(best_val)+ " at:" + str(best_loc))
-            time.sleep(1)
-        print("Scan successful")
-        print(best_loc)
-        
-        # google ad displays x immediately so, have to wait until it finishes, theyre mostly 30s long
-        if best_pic == 'exitad1.JPG': 
-            time.sleep(20)
-            print("Closing google ad...")
-            self.inputs.tap(best_loc[0], best_loc[1])
-            return
-        
-        # double confirm for these, generally it would just search for it again but this faster
-        elif best_pic in ('exitad0.JPG', 'exitad8.JPG', 'exitad11.JPG',' exitad12.JPG', 'exitad15.JPG'): 
-            print("Closing double confirm ad...")
-            self.inputs.tap(best_loc[0], best_loc[1])
-            time.sleep(8)
-            self.inputs.tap(best_loc[0], best_loc[1])
-            return
-    
-        
-        # trying to close uncommon ad
-        print("Closing misc ad...")
-        self.inputs.tap(best_loc[0], best_loc[1])
-        time.sleep(1)
-
-        
-        timer = time.time()
-        while self.where_am_i() == "ad":
-            currtime = time.time()
-            if 60<(currtime-timer): # if 1 minutes pass without success restart
-                self.restart_game()
-                return 'Failed'
-    
-    def broken_ad(self):
-        if self.where_am_i() == "brokenad": 
-            time.sleep(4)
-            if self.where_am_i() == "brokenad": 
-                return True
-            
-        return False
-
+    # buff module
     def do_buffs(self):
-        print("Checking buffs...")
+        self.gui.print_line('Checking buffs...')
         needles = tuple(os.listdir('buff/'))
         for i in needles:
             try_successful = False
             while not try_successful:
-                
-                if self.where_am_i() != "buff":
-                    self.return_home()
-                    self.inputs.tap(50, 138)
+                time.sleep(2)
+                if self.where_am_i() != 'buff':
+                    if self.where_am_i() != 'main':
+                        self.return_to('main')
+                        time.sleep(1)
                     time.sleep(1)
-                time.sleep(1)
-                result = self.frames.find_needle('buff/', i, 0.9, True)
+                    self.inputs.tap(44, 136)
+                time.sleep(3)
+                result = self.frames.find_needle('buff/', i, 0.8, True)
                 
                 if result:
-                    print("Activating buff...")
+                    self.gui.print_line('Activating buff...')
                     self.inputs.tap(result[0], result[1])
                     time.sleep(3)
 
@@ -316,20 +227,25 @@ class Game(threading.Thread):
                         break
                     elif self.where_am_i() == 'ad':
                         time.sleep(3)
-                        print("Skipping ad...")
-                        if self.skip_ad() == 'Failed':
+                        self.gui.print_line('Skipping ad...')
+                        if self.skip_ad() is False:
                             try_successful = False
                             break
-                        print("Activated: "+ i[:-4])
+                        self.gui.print_line('Activated: '+ i[:-4])
                         try_successful = True
                 else:
                     try_successful = True
 
-        self.return_home()
-        print("Buffs active")
-        
+        if self.where_am_i() != 'main':
+            self.return_to('main')
+            time.sleep(1)
+        if self.frames.extract_pixel(43, 134) == [152, 152, 160]:
+            self.do_buffs()
+        self.gui.print_line('Buffs active')
+    
+    #dungeon module
     def do_dungeons(self):  
-        print("Checking dungeons")
+        self.gui.print_line('Checking dungeons')
         needles = tuple(os.listdir('dungeon/'))
         done_dungeon = False # if manages to check on all dungeons and doesnt do any set true
         while not done_dungeon:
@@ -337,16 +253,15 @@ class Game(threading.Thread):
             for i in needles:
                 try_successful = False
                 while not try_successful:
-                    if self.where_am_i() != "dungeon":
-                        self.return_home()
+                    if self.where_am_i() != 'dungeon':
+                        self.return_to('main')
                         self.inputs.tap(500, 943)
                         time.sleep(1)
-                    time.sleep(2)
-                    print(i)
+                    time.sleep(0.5)
                     result = self.frames.find_needle('dungeon/', i, 0.87, True)
                     
                     if result:
-                        print("Found dungeon...")
+                        self.gui.print_line('Found dungeon...')
                         self.inputs.tap(result[0], result[1])
                         time.sleep(1.5)
                         self.inputs.key('n')
@@ -355,17 +270,17 @@ class Game(threading.Thread):
                             if self.broken_ad():
                                 self.restart_game()
                                 break
-                            print("Skipping ad...")
-                            if self.skip_ad() == 'Failed':
+                            self.gui.print_line('Skipping ad...')
+                            if self.skip_ad(0.5) is False:
                                 try_successful = False
                             time.sleep(3)
                         else:
                             time.sleep(4)
-                        if self.where_am_i() == "doingdungeon":
+                        if self.where_am_i() == 'doingdungeon':
                             timer = time.time()
-                            while self.where_am_i() == "doingdungeon":
+                            while self.where_am_i() == 'doingdungeon':
                                 currtime = time.time()
-                                print("Waiting...")
+                                self.gui.print_line('Waiting...')
                                 time.sleep(5)
                                 if 200<(currtime-timer):
                                     self.restart_game()
@@ -379,21 +294,12 @@ class Game(threading.Thread):
                     else:
                         try_successful = True
 
-        print("No available dungeons left")    
+        self.gui.print_line('No available dungeons left')
+        return True
         
-    def check_fail(self):
-        while True:
-            if self.gui.prestige.get() == True:
-                result = self.frames.find_needle('prestige/', 'timesup.PNG', 0.95)
-                if result != False:
-                    self.do_prestige()
-                time.sleep(1)
-            else:
-                time.sleep(1)
-            
-        
+    #prestige module
     def do_prestige(self):
-        print("Returning...")
+        self.gui.print_line('Returning...')
         self.inputs.tap(514, 140)
         time.sleep(1)
         if self.frames.extract_pixel(346,960) == [165, 178, 189]:
@@ -402,92 +308,135 @@ class Game(threading.Thread):
             time.sleep(15)
             self.inputs.tap(279, 968)
             time.sleep(5)
-            if self.frames.extract_pixel(211,514) == [99, 195, 255]:
-                print("Rush available")
-                self.inputs.tap(508, 214)
-                time.sleep(1.5)
-                self.inputs.tap(280, 909)
-                time.sleep(0.3)
-                self.inputs.tap(280, 909)
-                time.sleep(0.3)
-                self.inputs.tap(280, 909)
-                time.sleep(0.3)
-                self.inputs.tap(280, 909)
-                time.sleep(0.3)
-                self.inputs.tap(280, 909)
-                time.sleep(0.3)
-                self.inputs.tap(280, 909)
-                time.sleep(0.3)
-                self.inputs.tap(280, 909)
-                
-            time.sleep(5)
-            print("Return finished")
+            self.gui.print_line('Return finished')
         else:
             time.sleep(1)
             self.inputs.tap(507, 432)
-            print("Cant Return yet")
+            self.gui.print_line('Cant Return yet')
             time.sleep(2)
     
+    #train module
     def do_train(self):
-        print("Training...")
-        self.return_home()
+        self.gui.print_line('Training...')
+        if self.where_am_i() != 'main':
+            self.return_to('main')
         self.inputs.key('m')
         time.sleep(12)
-        print("Trained")
-        
+        self.gui.print_line('Trained')
+        return True
+    
+    #shop module
     def do_shop(self):
-        print("Claiming rewards...")
-        self.return_home()
-        self.inputs.tap(85, 949)
-        time.sleep(1)
-        self.inputs.tap(182, 879)
+        self.gui.print_line('Claiming rewards...')
         self.inputs.key('l')
-        time.sleep(10)
-        self.inputs.tap(126, 298)
-        time.sleep(3)
-        while self.where_am_i() == "ad":
+        time.sleep(13)
+        while self.where_am_i() == 'ad':
             self.skip_ad()
             time.sleep(1)
         time.sleep(2)
-        self.inputs.key('k')
-        if self.where_am_i() != "shop":
-            self.inputs.tap(85, 949)
-        time.sleep(1)
-        self.inputs.tap(378, 877)
-        time.sleep(2)
-        self.inputs.tap(123, 414)
-        time.sleep(3)
-        while self.where_am_i() == "ad":
+        if self.where_am_i() != 'main':
+            self.return_to('main')
+        self.inputs.key('j')
+        time.sleep(13)
+        while self.where_am_i() == 'ad':
             self.skip_ad()
             time.sleep(1)
         time.sleep(2)
-        self.return_home()
-        print("Rewards claimed")
-        
+        if self.where_am_i() != 'main':
+            self.return_to('main')
+        self.gui.print_line('Rewards claimed')
+    
+    # old event
     def do_event_check(self):
-        self.return_home()
+        if self.where_am_i() != 'main':
+            self.return_to('main')
         time.sleep(2)
         self.inputs.tap(41, 490)
         time.sleep(1)
         self.inputs.tap(357, 935)
         time.sleep(2)
         if self.frames.extract_pixel(169,551) != [156, 174, 189]:
-            print("Claiming...")
+            self.gui.print_line('Claiming...')
             self.inputs.tap(190, 539)
             time.sleep(2)
             result = self.skip_ad()
             time.sleep(2)
-            self.return_home()
+            if self.where_am_i() != 'main':
+                self.return_to('main')
             return result
         else:
-            print("No reward")
+            self.gui.print_line('No reward')
             time.sleep(2)
-            self.return_home()
+            if self.where_am_i() != 'main':
+                self.return_to('main')
             return
-        
-    def timer(self, minutes):
-        return (time.time())-(minutes*60)
+    
+    # skips mosts ads using match template
+    def skip_ad(self, delay=2):  
+        best_loc = (0, 0) # tuple coordinates
+        best_val = 0
+        best_pic = None
+        threshold = 0.75
+        needles = tuple(os.listdir('needles/'))
+        timer = time.time()
+        self.gui.print_finder('Waiting for ad to progress...')
+        time.sleep(10)
+        while not best_val>threshold:
+            self.gui.print_finder('Scanning...')
+            #self.inputs.tap(260, 20)
+            currtime = time.time()
+            if 120<(currtime-timer): # if 2 minutes pass without success restart
+                self.restart_game()
+                return False
+            if self.where_am_i() != 'ad':
+                self.gui.print_finder('Returned to main')
+                return False
+            for i in needles:
+                time.sleep(0.1)
+                locations, values = self.frames.find_all_needle('needles/', i, threshold, values=True)
+                if len(locations)>0: # add another check for locations in middle of game as the close button is usually towards the corners : DONE
+                    for k in range(len(locations)):
+                        if (values[k] > threshold) and (values[k] > best_val) and (locations[k][1]>32): # last check for the memu exit button
+                            if not (70 <= locations[k][0] <= 485) and not (140 <= locations[k][1] <= 930):
+                                best_val = round(values[k], 2)
+                                best_loc = locations[k]
+                                best_pic = i
+                                self.gui.print_finder(f"New best match: {best_val} at: {best_loc}")
+            time.sleep(delay)
+        self.gui.print_finder(f'Scan successful, at {best_loc}')
+        # google ad displays x immediately so, have to wait until it finishes, theyre mostly 5-30s long
+        if best_pic == 'exitad1.JPG': 
+            time.sleep(20)
+            self.gui.print_finder('Closing google ad...')
+            self.inputs.tap(best_loc[0], best_loc[1])
+            return
+        # double confirm for these
+        elif best_pic in ('exitad0.JPG', 'exitad8.JPG', 'exitad11.JPG',' exitad12.JPG', 'exitad15.JPG'): 
+            self.gui.print_finder('Closing double confirm ad...')
+            self.inputs.tap(best_loc[0], best_loc[1])
+            time.sleep(8)
+            self.inputs.tap(best_loc[0], best_loc[1])
+            return
+        # trying to close uncommon ad
+        self.gui.print_finder('Closing misc ad...')
+        self.inputs.tap(best_loc[0], best_loc[1])
+        time.sleep(1)
 
+        timer = time.time()
+        while self.where_am_i() == 'ad':
+            currtime = time.time()
+            if 60<(currtime-timer): # if 1 minutes pass without success restart
+                self.restart_game()
+                return False
+    
+    def broken_ad(self):
+        if self.where_am_i() == 'brokenad': 
+            time.sleep(4)
+            if self.where_am_i() == 'brokenad': 
+                return True
+            
+        return False
+    
     def background_ad_skip(self):
         needles = tuple(os.listdir('needles/'))
         threshold = 0.75
@@ -506,25 +455,25 @@ class Game(threading.Thread):
                             best_val = values[k]
                             best_loc = locations[k]
                             best_pic = i
-                            self.gui.print_finder("New best match: " +str(round(best_val, 2))+ " at:" + str(best_loc))
+                            self.gui.print_finder(f"New best match: {round(best_val, 2)} at: {best_loc}")
                             success = True
         time.sleep(2)
         if success:
             # google ad displays x immediately so, have to wait until it finishes, theyre mostly 30s long
             if best_pic == 'exitad1.JPG': 
                 time.sleep(27)
-                self.gui.print_finder("Closing google ad at:"+ str(best_loc))
+                self.gui.print_finder(f"Closing google ad at: {best_loc}")
                 self.inputs.tap(best_loc[0], best_loc[1])
             
             # double confirm for these, generally it would just search for it again but this faster
             elif best_pic in ('exitad0.JPG', 'exitad8.JPG', 'exitad11.JPG',' exitad12.JPG', 'exitad15.JPG'): 
-                self.gui.print_finder("Closing double confirm ad at:"+ str(best_loc))
+                self.gui.print_finder(f"Closing double confirm ad at: {best_loc}")
                 self.inputs.tap(best_loc[0], best_loc[1])
                 time.sleep(8)
                 self.inputs.tap(best_loc[0], best_loc[1])
             else:
                 # trying to close uncommon ad
-                self.gui.print_finder("Closing misc ad at:"+ str(best_loc))
+                self.gui.print_finder(f"Closing misc ad at: {best_loc}")
                 self.inputs.tap(best_loc[0], best_loc[1])
                 time.sleep(1)
 
@@ -534,13 +483,30 @@ def main():
     game = Game()
     game.start()
     game.gui.run() # mainloop close program shutdown
-    if game.frames in globals():
+    try:
+        game.check.join()
+    except:
+        pass
+    try:
+        game.frames.output.join()
+    except:
+        pass
+    try:
         game.frames.update.join()
-        if game.frames.output in globals():
-            game.frames.output.join()
+    except:
+        pass
+    try:
+        game.values.join()
+    except:
+        pass
+    try:
+        game.frames.pos.join()
+    except:
+        pass
     game.join()
-    print("end")
+    
+    print('end')
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
