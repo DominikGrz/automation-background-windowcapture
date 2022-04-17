@@ -8,4 +8,7 @@ __capturewindow.py__ - using direct windows api calls allows to capture specific
 
 __gui.py__ - main window with options to set title and different modes using __tkinter__
 
+-all of these can be used with hwndsframe.py in other projects seperately
+
+
 __main.py__ - contains the main code specific to the game, functions to do specific actions in the game, __skip ads__ using match template
